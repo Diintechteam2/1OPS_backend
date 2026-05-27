@@ -1,0 +1,68 @@
+const mongoose = require('mongoose');
+
+const leaveSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    clientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Client',
+      default: null,
+    },
+    leaveType: {
+      type: String,
+      enum: ['Sick Leave', 'Casual Leave', 'Earned Leave', 'Unpaid Leave'],
+      required: true,
+    },
+    fromDate: {
+      type: Date,
+      required: true,
+    },
+    toDate: {
+      type: Date,
+      required: true,
+    },
+    totalDays: {
+      type: Number,
+      default: 1,
+    },
+    reason: {
+      type: String,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    adminComment: {
+      type: String,
+      default: '',
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    approvedAt: {
+      type: Date,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Pre-save hook to compute total days
+leaveSchema.pre('save', function (next) {
+  if (this.fromDate && this.toDate) {
+    const diffTime = Math.abs(this.toDate - this.fromDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    this.totalDays = diffDays;
+  }
+  next();
+});
+
+module.exports = mongoose.model('Leave', leaveSchema);
