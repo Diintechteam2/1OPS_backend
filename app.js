@@ -40,8 +40,9 @@ app.use(express.json());
 app.use(morgan('dev'));
 app.use(passport.initialize());
 
-// === Public Auth Routes (no clientSlug needed) ===
-app.use('/api/auth', authRoutes);
+// === Public Auth Routes ===
+app.use('/api/auth', authRoutes.flatRouter);
+app.use('/api/:clientSlug/auth', authRoutes.scopedRouter);
 
 // === Super Admin Routes ===
 app.use('/api/superadmin', superAdminRoutes);

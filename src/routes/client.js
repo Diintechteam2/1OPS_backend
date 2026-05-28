@@ -10,6 +10,7 @@ router.use(authMiddleware, clientSlugVerification, adminOnlyMiddleware);
 // Employee Management
 router.get('/employees', clientController.getEmployees);
 router.get('/employees/:id', clientController.getEmployeeById);
+router.post('/employees', clientController.onboardEmployee);
 router.put('/employees/:id', clientController.updateEmployee);
 router.delete('/employees/:id', clientController.deactivateEmployee);
 

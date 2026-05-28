@@ -39,30 +39,22 @@ const generatePlatformAdminToken = (platformAdmin) => {
   );
 };
 
-// Google OAuth callback endpoint
+// Google OAuth callback endpoint (Disabled)
 exports.googleCallback = async (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message: 'Google login is disabled.',
+    error: 'FORBIDDEN'
+  });
+};
+
+// Get list of active clients (public)
+exports.getActiveClients = async (req, res, next) => {
   try {
-    if (!req.user) {
-      return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/login?error=AUTH_FAILED`);
-    }
-
-    // Populate clientId to get company name and slug
-    await req.user.populate('clientId', 'slug companyName');
-    const clientSlug = req.user.clientId ? req.user.clientId.slug : '';
-    const companyName = req.user.clientId ? req.user.clientId.companyName : '';
-
-    const token = generateToken(req.user);
-    
-    // Check if the OAuth state specifies admin panel or employee web app
-    const state = req.query.state || 'client';
-    const redirectBase = state === 'admin'
-      ? `${process.env.ADMIN_URL || 'http://localhost:3000'}/client`
-      : (process.env.CLIENT_URL || 'http://localhost:3000');
-
-    return res.redirect(`${redirectBase}/login?token=${token}&clientSlug=${clientSlug}&companyName=${companyName}`);
+    const clients = await Client.find({ isActive: true }, 'slug companyName');
+    return sendResponse(res, 200, true, 'Active clients fetched successfully', clients);
   } catch (error) {
-    console.error('Google Callback Error:', error);
-    return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}/login?error=SERVER_ERROR`);
+    next(error);
   }
 };
 
@@ -85,6 +77,7 @@ exports.logout = (req, res) => {
 exports.mockLogin = async (req, res, next) => {
   try {
     const { role = 'employee', redirect } = req.query;
+    const clientSlugParam = req.params.clientSlug || req.query.clientSlug;
     
     if (!['employee', 'admin', 'hr'].includes(role)) {
       return sendResponse(res, 400, false, 'Invalid mock role. Choose employee, admin, or hr.');
@@ -93,10 +86,12 @@ exports.mockLogin = async (req, res, next) => {
     const email = `mock.${role}@example.com`;
     const name = `Mock ${role.charAt(0).toUpperCase() + role.slice(1)}`;
 
-    const defaultClient = await Client.findOne({ slug: '1ops' });
-    const clientId = defaultClient ? defaultClient._id : null;
+    const targetClient = clientSlugParam
+      ? await Client.findOne({ slug: clientSlugParam.toLowerCase().trim() })
+      : await Client.findOne({ slug: '1ops' });
+    const clientId = targetClient ? targetClient._id : null;
 
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email, clientId });
     if (!user) {
       user = await User.create({
         name,
@@ -126,8 +121,8 @@ exports.mockLogin = async (req, res, next) => {
     }
 
     const token = generateToken(user);
-    const clientSlug = defaultClient ? defaultClient.slug : '';
-    const companyName = defaultClient ? defaultClient.companyName : '';
+    const clientSlug = targetClient ? targetClient.slug : '';
+    const companyName = targetClient ? targetClient.companyName : '';
 
     if (redirect === 'true') {
       const redirectBase = (role === 'admin' || role === 'hr')
@@ -155,73 +150,34 @@ exports.mockLogin = async (req, res, next) => {
   }
 };
 
-// Custom Email/Password Registration (Signup)
+// Custom Email/Password Registration (Disabled)
 exports.register = async (req, res, next) => {
-  try {
-    const { name, email, password, role, department, designation, phone, clientSlug } = req.body;
-
-    if (!name || !email || !password || !role) {
-      return sendResponse(res, 400, false, 'Name, email, password and role are required.');
-    }
-
-    const normalizedEmail = email.toLowerCase().trim();
-    const existingUser = await User.findOne({ email: normalizedEmail });
-    if (existingUser) {
-      return sendResponse(res, 409, false, 'Email is already registered.');
-    }
-
-    // Resolve clientId from slug
-    let resolvedClientId = null;
-    if (clientSlug) {
-      const client = await Client.findOne({ slug: clientSlug.toLowerCase().trim(), isActive: true });
-      if (!client) {
-        return sendResponse(res, 404, false, `No active client found with slug: "${clientSlug}". Please verify your company code.`);
-      }
-      resolvedClientId = client._id;
-    }
-
-    // Hash the password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    const user = await User.create({
-      name,
-      email: normalizedEmail,
-      password: hashedPassword,
-      role,
-      department: department || '',
-      designation: designation || '',
-      phone: phone || '',
-      clientId: resolvedClientId,
-      approvalStatus: 'pending',
-      isActive: false,
-      joiningDate: new Date(),
-    });
-
-    return sendResponse(res, 201, true, 'Registration submitted successfully. Please wait for HR/Admin approval.', {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        approvalStatus: user.approvalStatus,
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
+  return res.status(403).json({
+    success: false,
+    message: 'Self-registration is disabled. Please contact your administrator.',
+    error: 'FORBIDDEN'
+  });
 };
 
 // Custom Email/Password Login
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const clientSlug = req.params.clientSlug || req.body.clientSlug;
 
     if (!email || !password) {
       return sendResponse(res, 400, false, 'Email and password are required.');
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() }).populate('clientId', 'slug companyName isActive');
+    let resolvedClientId = null;
+    if (clientSlug) {
+      const client = await Client.findOne({ slug: clientSlug.toLowerCase().trim(), isActive: true });
+      if (client) {
+        resolvedClientId = client._id;
+      }
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim(), clientId: resolvedClientId }).populate('clientId', 'slug companyName isActive');
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -264,12 +220,12 @@ exports.login = async (req, res, next) => {
     }
 
     const token = generateToken(user);
-    const clientSlug = user.clientId ? user.clientId.slug : null;
+    const finalClientSlug = user.clientId ? user.clientId.slug : null;
     const companyName = user.clientId ? user.clientId.companyName : null;
 
     return sendResponse(res, 200, true, 'Login successful', {
       token,
-      clientSlug,
+      clientSlug: finalClientSlug,
       companyName,
       user: {
         id: user._id,
@@ -348,4 +304,56 @@ exports.platformAdminLogin = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+// Get system metadata constants (public)
+exports.getMetadata = (req, res) => {
+  return res.status(200).json({
+    success: true,
+    message: 'System metadata fetched successfully',
+    data: {
+      roles: ['employee', 'hr', 'admin'],
+      departments: ['Engineering', 'HR', 'Sales', 'Design', 'Operations'],
+      designations: {
+        'Engineering': [
+          'Full Stack Developer',
+          'App Developer',
+          'AI/ML Developer',
+          'UI/UX Designer',
+          'DevOps Engineer',
+          'Frontend Developer',
+          'Backend Developer',
+          'QA Engineer'
+        ],
+        'HR': [
+          'HR Manager',
+          'HR Generalist',
+          'Talent Acquisition Specialist',
+          'HR Analyst',
+          'HR Operations Specialist'
+        ],
+        'Sales': [
+          'Sales Manager',
+          'Sales Executive',
+          'Business Development Executive',
+          'Digital Marketing Specialist',
+          'SEO Analyst'
+        ],
+        'Design': [
+          'UI/UX Designer',
+          'Product Designer',
+          'Graphic Designer',
+          'Motion Designer',
+          '3D Artist'
+        ],
+        'Operations': [
+          'Operations Manager',
+          'Operations Associate',
+          'Project Manager',
+          'Business Analyst',
+          'System Administrator'
+        ]
+      }
+    }
+  });
 };

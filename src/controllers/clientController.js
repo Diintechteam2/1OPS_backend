@@ -8,6 +8,7 @@ const WorkReport = require('../models/WorkReport');
 const Policy = require('../models/Policy');
 const { getTodayString } = require('../utils/dateHelpers');
 const sendResponse = require('../utils/sendResponse');
+const bcrypt = require('bcryptjs');
 
 // === EMPLOYEE MANAGEMENT ===
 
@@ -66,7 +67,12 @@ exports.getEmployeeById = async (req, res, next) => {
 
 exports.updateEmployee = async (req, res, next) => {
   try {
-    const { name, role, department, designation, phone, joiningDate, isActive } = req.body;
+    const {
+      name, role, department, designation, phone, joiningDate, isActive,
+      aadhaar, pan, temporaryAddress, permanentAddress, localGuardianPhone,
+      reportingManagerName, reportingManagerEmail, reportingManagerPhone,
+      password, workMode
+    } = req.body;
     
     const employee = await User.findOne({ _id: req.params.id, clientId: req.clientId });
     if (!employee) {
@@ -80,6 +86,21 @@ exports.updateEmployee = async (req, res, next) => {
     if (phone !== undefined) employee.phone = phone;
     if (joiningDate !== undefined) employee.joiningDate = new Date(joiningDate);
     if (isActive !== undefined) employee.isActive = isActive;
+
+    if (aadhaar !== undefined) employee.aadhaar = aadhaar;
+    if (pan !== undefined) employee.pan = pan;
+    if (temporaryAddress !== undefined) employee.temporaryAddress = temporaryAddress;
+    if (permanentAddress !== undefined) employee.permanentAddress = permanentAddress;
+    if (localGuardianPhone !== undefined) employee.localGuardianPhone = localGuardianPhone;
+    if (reportingManagerName !== undefined) employee.reportingManagerName = reportingManagerName;
+    if (reportingManagerEmail !== undefined) employee.reportingManagerEmail = reportingManagerEmail;
+    if (reportingManagerPhone !== undefined) employee.reportingManagerPhone = reportingManagerPhone;
+    if (workMode !== undefined) employee.workMode = workMode;
+
+    if (password !== undefined && password.trim() !== '') {
+      const salt = await bcrypt.genSalt(10);
+      employee.password = await bcrypt.hash(password, salt);
+    }
 
     await employee.save();
     return sendResponse(res, 200, true, 'Employee updated successfully', employee);
@@ -99,6 +120,79 @@ exports.deactivateEmployee = async (req, res, next) => {
     await employee.save();
     
     return sendResponse(res, 200, true, 'Employee deactivated successfully', employee);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.onboardEmployee = async (req, res, next) => {
+  try {
+    const {
+      name,
+      email,
+      password,
+      role = 'employee',
+      phone = '',
+      department = '',
+      designation = '',
+      joiningDate = new Date(),
+      aadhaar = '',
+      pan = '',
+      temporaryAddress = '',
+      permanentAddress = '',
+      localGuardianPhone = '',
+      reportingManagerName = '',
+      reportingManagerEmail = '',
+      reportingManagerPhone = '',
+      workMode = 'office'
+    } = req.body;
+
+    if (!name || !email || !password) {
+      return sendResponse(res, 400, false, 'Name, email and password are required.');
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const existingUser = await User.findOne({ email: normalizedEmail, clientId: req.clientId });
+    if (existingUser) {
+      return sendResponse(res, 409, false, 'Email is already registered for this company.');
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const employee = await User.create({
+      name,
+      email: normalizedEmail,
+      password: hashedPassword,
+      role,
+      phone,
+      department,
+      designation,
+      joiningDate: new Date(joiningDate),
+      clientId: req.clientId,
+      approvalStatus: 'approved',
+      isActive: true,
+      aadhaar,
+      pan,
+      temporaryAddress,
+      permanentAddress,
+      localGuardianPhone,
+      reportingManagerName,
+      reportingManagerEmail,
+      reportingManagerPhone,
+      workMode
+    });
+
+    return sendResponse(res, 201, true, 'Employee onboarded successfully.', {
+      id: employee._id,
+      name: employee.name,
+      email: employee.email,
+      employeeId: employee.employeeId,
+      role: employee.role,
+      department: employee.department,
+      designation: employee.designation,
+      workMode: employee.workMode
+    });
   } catch (error) {
     next(error);
   }
@@ -611,65 +705,28 @@ exports.getAdminStats = async (req, res, next) => {
   }
 };
 
-// === PENDING REGISTRATIONS APPROVAL ===
+// === PENDING REGISTRATIONS APPROVAL (Disabled) ===
 
 exports.getPendingRegistrations = async (req, res, next) => {
-  try {
-    const list = await User.find({ clientId: req.clientId, approvalStatus: 'pending' }).sort({ createdAt: -1 });
-    return sendResponse(res, 200, true, 'Pending registration requests fetched successfully', list);
-  } catch (error) {
-    next(error);
-  }
+  return res.status(403).json({
+    success: false,
+    message: 'Registration approvals are disabled.',
+    error: 'FORBIDDEN'
+  });
 };
 
 exports.approveRegistration = async (req, res, next) => {
-  try {
-    const { role } = req.body;
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return sendResponse(res, 404, false, 'User registration request not found.');
-    }
-
-    if (user.approvalStatus !== 'pending') {
-      return sendResponse(res, 400, false, `User is already ${user.approvalStatus}.`);
-    }
-
-    if (role) {
-      if (!['employee', 'admin', 'hr'].includes(role)) {
-        return sendResponse(res, 400, false, 'Invalid role. Choose employee, admin, or hr.');
-      }
-      user.role = role;
-    }
-
-    user.approvalStatus = 'approved';
-    user.isActive = true;
-    await user.save();
-
-    return sendResponse(res, 200, true, 'User registration request approved successfully.', user);
-  } catch (error) {
-    next(error);
-  }
+  return res.status(403).json({
+    success: false,
+    message: 'Registration approvals are disabled.',
+    error: 'FORBIDDEN'
+  });
 };
 
 exports.rejectRegistration = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return sendResponse(res, 404, false, 'User registration request not found.');
-    }
-
-    if (user.approvalStatus !== 'pending') {
-      return sendResponse(res, 400, false, `User is already ${user.approvalStatus}.`);
-    }
-
-    user.approvalStatus = 'rejected';
-    user.isActive = false;
-    await user.save();
-
-    return sendResponse(res, 200, true, 'User registration request rejected.', user);
-  } catch (error) {
-    next(error);
-  }
+  return res.status(403).json({
+    success: false,
+    message: 'Registration approvals are disabled.',
+    error: 'FORBIDDEN'
+  });
 };

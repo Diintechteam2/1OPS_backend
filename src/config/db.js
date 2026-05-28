@@ -95,7 +95,7 @@ const seedDefaultUsers = async (clientId) => {
     const hashedPassword = await bcrypt.hash('123456', salt);
 
     for (const u of defaultUsers) {
-      let user = await User.findOne({ email: u.email });
+      let user = await User.findOne({ email: u.email, clientId });
       if (!user) {
         user = await User.create({
           ...u,
@@ -124,6 +124,26 @@ const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI);
     console.log(`MongoDB Connected: ${conn.connection.host}`);
+
+    // Clean up old legacy single-field unique indexes on users collection
+    try {
+      await mongoose.connection.db.collection('users').dropIndex('email_1');
+      console.log('Successfully dropped old single-field unique index: email_1');
+    } catch (err) {
+      // Index might not exist or collection not created yet, safe to ignore
+    }
+    try {
+      await mongoose.connection.db.collection('users').dropIndex('googleId_1');
+      console.log('Successfully dropped old single-field unique index: googleId_1');
+    } catch (err) {
+      // ignore
+    }
+    try {
+      await mongoose.connection.db.collection('users').dropIndex('employeeId_1');
+      console.log('Successfully dropped old single-field unique index: employeeId_1');
+    } catch (err) {
+      // ignore
+    }
 
     // Run seeding in order
     await seedSuperAdmin();

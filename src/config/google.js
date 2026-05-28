@@ -1,6 +1,7 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const User = require('../models/User');
+const Client = require('../models/Client');
 
 const configureGoogleOAuth = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -23,15 +24,33 @@ const configureGoogleOAuth = () => {
       async (req, accessToken, refreshToken, profile, done) => {
         try {
           const email = profile.emails[0].value;
-          let user = await User.findOne({ email });
+          
+          // Parse clientSlug from Google OAuth state parameter
+          let clientSlug = '';
+          if (req.query && req.query.state) {
+            try {
+              const stateObj = JSON.parse(req.query.state);
+              clientSlug = stateObj.clientSlug || '';
+            } catch (e) {
+              // fallback if not JSON (e.g. pure string origin)
+            }
+          }
+
+          let client = null;
+          if (clientSlug) {
+            client = await Client.findOne({ slug: clientSlug.toLowerCase().trim(), isActive: true });
+          }
+
+          const resolvedClientId = client ? client._id : null;
+          let user = await User.findOne({ email, clientId: resolvedClientId });
 
           if (!user) {
-            // Count users to generate the sequential EMP-XXX ID
-            const count = await User.countDocuments();
+            // Count users of this specific client to generate the sequential EMP-XXX ID
+            const count = await User.countDocuments({ clientId: resolvedClientId });
             const nextNum = count + 1;
             const employeeId = `EMP-${String(nextNum).padStart(3, '0')}`;
             
-            // First registered user gets promoted to Admin automatically for development testing
+            // First registered user for this client gets promoted to Admin automatically for development testing
             const role = count === 0 ? 'admin' : 'employee';
 
             user = await User.create({
@@ -40,7 +59,9 @@ const configureGoogleOAuth = () => {
               email: email,
               profileImageUrl: profile.photos && profile.photos[0] ? profile.photos[0].value : '',
               role: role,
+              clientId: resolvedClientId,
               employeeId: employeeId,
+              approvalStatus: 'approved',
               isActive: true,
               joiningDate: new Date()
             });
@@ -52,6 +73,9 @@ const configureGoogleOAuth = () => {
             if (!user.profileImageUrl && profile.photos && profile.photos[0]) {
               user.profileImageUrl = profile.photos[0].value;
             }
+            // Ensure approval and active status is synced for Google login users
+            user.approvalStatus = 'approved';
+            user.isActive = true;
             await user.save();
           }
 
