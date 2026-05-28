@@ -17,6 +17,7 @@ router.delete('/employees/:id', clientController.deactivateEmployee);
 // Attendance Management
 router.get('/attendance', clientController.getAllAttendance);
 router.get('/attendance/report', clientController.getAttendanceReport);
+router.get('/attendance/employee-summary/:userId', clientController.getEmployeeAttendanceSummary);
 router.put('/attendance/:id', clientController.correctAttendance);
 
 // Leave Management

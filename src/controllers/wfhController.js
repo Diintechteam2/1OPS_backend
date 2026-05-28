@@ -1,19 +1,29 @@
 const WFHRequest = require('../models/WFHRequest');
 const sendResponse = require('../utils/sendResponse');
 
-// Request WFH
 exports.requestWfh = async (req, res, next) => {
   try {
-    const { date, reason } = req.body;
+    let { fromDate, toDate, date, reason } = req.body;
 
-    if (!date || !reason) {
-      return sendResponse(res, 400, false, 'Date and reason are required.');
+    // Fallback for single date input
+    if (!fromDate && !toDate && date) {
+      fromDate = date;
+      toDate = date;
+    }
+
+    if (!fromDate || !toDate || !reason) {
+      return sendResponse(res, 400, false, 'From date, to date and reason are required.');
+    }
+
+    if (new Date(fromDate) > new Date(toDate)) {
+      return sendResponse(res, 400, false, 'From date cannot be after To date.');
     }
 
     const request = await WFHRequest.create({
       userId: req.user._id,
       clientId: req.clientId,
-      date: new Date(date),
+      fromDate: new Date(fromDate),
+      toDate: new Date(toDate),
       reason,
       status: 'pending'
     });

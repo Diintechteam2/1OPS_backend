@@ -56,13 +56,12 @@ const leaveSchema = new mongoose.Schema(
 );
 
 // Pre-save hook to compute total days
-leaveSchema.pre('save', function (next) {
+leaveSchema.pre('save', function () {
   if (this.fromDate && this.toDate) {
     const diffTime = Math.abs(this.toDate - this.fromDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     this.totalDays = diffDays;
   }
-  next();
 });
 
 module.exports = mongoose.model('Leave', leaveSchema);

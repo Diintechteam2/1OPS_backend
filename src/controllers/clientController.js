@@ -71,7 +71,7 @@ exports.updateEmployee = async (req, res, next) => {
       name, role, department, designation, phone, joiningDate, isActive,
       aadhaar, pan, temporaryAddress, permanentAddress, localGuardianPhone,
       reportingManagerName, reportingManagerEmail, reportingManagerPhone,
-      password, workMode
+      password, workMode, weekends
     } = req.body;
     
     const employee = await User.findOne({ _id: req.params.id, clientId: req.clientId });
@@ -96,6 +96,7 @@ exports.updateEmployee = async (req, res, next) => {
     if (reportingManagerEmail !== undefined) employee.reportingManagerEmail = reportingManagerEmail;
     if (reportingManagerPhone !== undefined) employee.reportingManagerPhone = reportingManagerPhone;
     if (workMode !== undefined) employee.workMode = workMode;
+    if (weekends !== undefined) employee.weekends = weekends;
 
     if (password !== undefined && password.trim() !== '') {
       const salt = await bcrypt.genSalt(10);
@@ -144,7 +145,8 @@ exports.onboardEmployee = async (req, res, next) => {
       reportingManagerName = '',
       reportingManagerEmail = '',
       reportingManagerPhone = '',
-      workMode = 'office'
+      workMode = 'office',
+      weekends = [0]
     } = req.body;
 
     if (!name || !email || !password) {
@@ -180,7 +182,8 @@ exports.onboardEmployee = async (req, res, next) => {
       reportingManagerName,
       reportingManagerEmail,
       reportingManagerPhone,
-      workMode
+      workMode,
+      weekends
     });
 
     return sendResponse(res, 201, true, 'Employee onboarded successfully.', {
@@ -191,7 +194,8 @@ exports.onboardEmployee = async (req, res, next) => {
       role: employee.role,
       department: employee.department,
       designation: employee.designation,
-      workMode: employee.workMode
+      workMode: employee.workMode,
+      weekends: employee.weekends
     });
   } catch (error) {
     next(error);
@@ -280,6 +284,118 @@ exports.correctAttendance = async (req, res, next) => {
 
     await attendance.save();
     return sendResponse(res, 200, true, 'Attendance record corrected successfully', attendance);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getEmployeeAttendanceSummary = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { month, year } = req.query;
+
+    if (!month || !year) {
+      return sendResponse(res, 400, false, 'Month and year parameters are required.');
+    }
+
+    // Verify employee exists and is under this client
+    const employee = await User.findOne({ _id: userId, clientId: req.clientId });
+    if (!employee) {
+      return sendResponse(res, 404, false, 'Employee not found');
+    }
+
+    const monthNum = parseInt(month, 10);
+    const yearNum = parseInt(year, 10);
+
+    // Get number of days in that month
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+
+    // Query all attendance records for this employee in this month
+    const prefix = `${yearNum}-${String(monthNum).padStart(2, '0')}-`;
+    const records = await Attendance.find({
+      userId,
+      clientId: req.clientId,
+      date: { $regex: new RegExp(`^${prefix}`) }
+    });
+
+    // Create a lookup map of existing records
+    const recordMap = {};
+    records.forEach(rec => {
+      recordMap[rec.date] = rec;
+    });
+
+    const empWeekends = employee.weekends || [0];
+    const todayStr = getTodayString(); // 'YYYY-MM-DD'
+    const days = [];
+    let pCount = 0;
+    let aCount = 0;
+    let clCount = 0;
+    let woCount = 0;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const rec = recordMap[dateStr];
+      const dayOfWeek = new Date(yearNum, monthNum - 1, d).getDay();
+      
+      let status = '';
+      if (rec) {
+        if (['present', 'late', 'wfh', 'half-day'].includes(rec.status)) {
+          status = 'P';
+          pCount++;
+        } else if (rec.status === 'leave') {
+          status = 'CL';
+          clCount++;
+        } else if (rec.status === 'absent') {
+          status = 'A';
+          aCount++;
+        } else {
+          status = 'P';
+          pCount++;
+        }
+      } else {
+        // No record exists. Check if date is in the future.
+        if (dateStr > todayStr) {
+          status = ''; // future date
+        } else {
+          // Check if this day is a weekend for this employee
+          if (empWeekends.includes(dayOfWeek)) {
+            status = 'WO';
+            woCount++;
+          } else {
+            status = 'A'; // past date with no record is Absent
+            aCount++;
+          }
+        }
+      }
+
+      days.push({
+        day: d,
+        date: dateStr,
+        status,
+        checkInTime: rec?.checkInTime || null,
+        checkOutTime: rec?.checkOutTime || null,
+        totalHours: rec?.totalHours || 0
+      });
+    }
+
+    return sendResponse(res, 200, true, 'Employee attendance summary fetched successfully', {
+      employee: {
+        id: employee._id,
+        name: employee.name,
+        employeeId: employee.employeeId,
+        department: employee.department,
+        designation: employee.designation,
+        joiningDate: employee.joiningDate,
+        weekends: empWeekends
+      },
+      totals: {
+        present: pCount + clCount,
+        absent: aCount,
+        leaves: clCount,
+        weeklyOffs: woCount
+      },
+      days
+    });
   } catch (error) {
     next(error);
   }
@@ -389,17 +505,37 @@ exports.approveWfh = async (req, res, next) => {
     request.approvedAt = new Date();
     await request.save();
 
-    // Mark Attendance for the WFH date as WFH/remote
-    const wfhDateStr = getTodayString(request.date);
-    await Attendance.findOneAndUpdate(
-      { userId: request.userId, date: wfhDateStr },
-      {
-        status: 'wfh',
-        type: 'remote',
-        isMarked: true,
-      },
-      { upsert: true, new: true }
-    );
+    // Mark Attendance for the WFH date(s) as WFH/remote
+    if (request.fromDate && request.toDate) {
+      let currentDate = new Date(request.fromDate);
+      const endDate = new Date(request.toDate);
+
+      while (currentDate <= endDate) {
+        const wfhDateStr = getTodayString(currentDate);
+        await Attendance.findOneAndUpdate(
+          { userId: request.userId, date: wfhDateStr },
+          {
+            status: 'wfh',
+            type: 'remote',
+            isMarked: true,
+          },
+          { upsert: true, new: true }
+        );
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    } else if (request.date) {
+      // Legacy fallback for single date requests
+      const wfhDateStr = getTodayString(request.date);
+      await Attendance.findOneAndUpdate(
+        { userId: request.userId, date: wfhDateStr },
+        {
+          status: 'wfh',
+          type: 'remote',
+          isMarked: true,
+        },
+        { upsert: true, new: true }
+      );
+    }
 
     return sendResponse(res, 200, true, 'WFH request approved', request);
   } catch (error) {

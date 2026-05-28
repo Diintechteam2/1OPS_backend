@@ -96,6 +96,10 @@ const userSchema = new mongoose.Schema(
       enum: ['office', 'remote'],
       default: 'office',
     },
+    weekends: {
+      type: [Number],
+      default: [0],
+    },
   },
   {
     timestamps: true,

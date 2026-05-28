@@ -14,7 +14,17 @@ const wfhRequestSchema = new mongoose.Schema(
     },
     date: {
       type: Date,
-      required: true,
+      required: false,
+    },
+    fromDate: {
+      type: Date,
+    },
+    toDate: {
+      type: Date,
+    },
+    totalDays: {
+      type: Number,
+      default: 1,
     },
     reason: {
       type: String,
@@ -41,5 +51,14 @@ const wfhRequestSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Pre-save hook to compute total days
+wfhRequestSchema.pre('save', function () {
+  if (this.fromDate && this.toDate) {
+    const diffTime = Math.abs(this.toDate - this.fromDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    this.totalDays = diffDays;
+  }
+});
 
 module.exports = mongoose.model('WFHRequest', wfhRequestSchema);

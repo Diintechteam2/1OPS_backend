@@ -43,7 +43,8 @@ exports.getSummary = async (req, res, next) => {
 
     // 3. Overall stats for stats row
     const totalLeaves = await Leave.countDocuments({ userId, clientId, status: 'approved' });
-    const totalWfh = await WFHRequest.countDocuments({ userId, clientId, status: 'approved' });
+    const approvedWfhRequests = await WFHRequest.find({ userId, clientId, status: 'approved' });
+    const totalWfh = approvedWfhRequests.reduce((sum, req) => sum + (req.totalDays || 1), 0);
     
     // Find count of all present & late records
     const presentDaysCount = await Attendance.countDocuments({
