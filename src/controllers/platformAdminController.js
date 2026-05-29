@@ -7,10 +7,10 @@ const sendResponse = require('../utils/sendResponse');
 // === CREATE CLIENT (by PlatformAdmin) ===
 exports.createClient = async (req, res, next) => {
   try {
-    const { companyName, slug, contactEmail, address, plan } = req.body;
+    const { companyName, slug, contactEmail, address, plan, adminEmail, adminPassword, officeLat, officeLng, officeAddress } = req.body;
 
-    if (!companyName || !slug) {
-      return sendResponse(res, 400, false, 'Company name and slug are required.');
+    if (!companyName || !slug || !adminEmail || !adminPassword) {
+      return sendResponse(res, 400, false, 'Company name, URL slug, admin email, and admin password are required.');
     }
 
     const slugNormalized = slug.toLowerCase().trim();
@@ -33,9 +33,33 @@ exports.createClient = async (req, res, next) => {
       plan: plan || 'basic',
       createdBy: req.platformAdmin._id,
       isActive: true,
+      officeLat: officeLat !== undefined ? parseFloat(officeLat) : null,
+      officeLng: officeLng !== undefined ? parseFloat(officeLng) : null,
+      officeAddress: officeAddress || '',
     });
 
-    return sendResponse(res, 201, true, 'Client created successfully.', client);
+    try {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(adminPassword, salt);
+
+      await User.create({
+        name: `${companyName} Admin`,
+        email: adminEmail.toLowerCase().trim(),
+        password: hashedPassword,
+        role: 'admin',
+        clientId: client._id,
+        approvalStatus: 'approved',
+        isActive: true,
+        department: 'IT Operations',
+        designation: 'System Administrator'
+      });
+    } catch (err) {
+      // Rollback client creation if admin user creation fails (e.g. duplicate email index check)
+      await Client.findByIdAndDelete(client._id);
+      return sendResponse(res, 400, false, err.message || 'Failed to create client admin user.');
+    }
+
+    return sendResponse(res, 201, true, 'Client created successfully with admin account.', client);
   } catch (error) {
     next(error);
   }
@@ -62,7 +86,15 @@ exports.getClientById = async (req, res, next) => {
     // Get employee count for this client
     const employeeCount = await User.countDocuments({ clientId: client._id });
 
-    return sendResponse(res, 200, true, 'Client details fetched.', { ...client.toObject(), employeeCount });
+    // Get admin email
+    const adminUser = await User.findOne({ clientId: client._id, role: 'admin' });
+    const adminEmail = adminUser ? adminUser.email : '';
+
+    return sendResponse(res, 200, true, 'Client details fetched.', { 
+      ...client.toObject(), 
+      employeeCount,
+      adminEmail 
+    });
   } catch (error) {
     next(error);
   }
@@ -149,6 +181,74 @@ exports.impersonateClient = async (req, res, next) => {
       clientSlug: client.slug,
       companyName: client.companyName
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// === UPDATE CLIENT (by PlatformAdmin) ===
+exports.updateClient = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { companyName, slug, contactEmail, address, plan, adminEmail, adminPassword, officeLat, officeLng, officeAddress } = req.body;
+
+    const client = await Client.findOne({ _id: id, createdBy: req.platformAdmin._id });
+    if (!client) {
+      return sendResponse(res, 404, false, 'Client not found.');
+    }
+
+    if (companyName) client.companyName = companyName;
+    if (contactEmail !== undefined) client.contactEmail = contactEmail;
+    if (address !== undefined) client.address = address;
+    if (plan !== undefined) client.plan = plan;
+    if (officeLat !== undefined) client.officeLat = officeLat !== null ? parseFloat(officeLat) : null;
+    if (officeLng !== undefined) client.officeLng = officeLng !== null ? parseFloat(officeLng) : null;
+    if (officeAddress !== undefined) client.officeAddress = officeAddress;
+
+    if (slug) {
+      const slugNormalized = slug.toLowerCase().trim();
+      if (!/^[a-z0-9-]+$/.test(slugNormalized)) {
+        return sendResponse(res, 400, false, 'Slug can only contain lowercase letters, numbers, and hyphens.');
+      }
+      const existing = await Client.findOne({ slug: slugNormalized, _id: { $ne: id } });
+      if (existing) {
+        return sendResponse(res, 409, false, `Client with slug "${slugNormalized}" already exists.`);
+      }
+      client.slug = slugNormalized;
+    }
+
+    await client.save();
+
+    // Update or create the Admin user
+    const adminUser = await User.findOne({ clientId: client._id, role: 'admin' });
+    if (adminUser) {
+      if (adminEmail) {
+        adminUser.email = adminEmail.toLowerCase().trim();
+      }
+      if (adminPassword) {
+        const salt = await bcrypt.genSalt(10);
+        adminUser.password = await bcrypt.hash(adminPassword, salt);
+      }
+      await adminUser.save();
+    } else if (adminEmail && adminPassword) {
+      // Fallback for legacy database records
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(adminPassword, salt);
+
+      await User.create({
+        name: `${client.companyName} Admin`,
+        email: adminEmail.toLowerCase().trim(),
+        password: hashedPassword,
+        role: 'admin',
+        clientId: client._id,
+        approvalStatus: 'approved',
+        isActive: true,
+        department: 'IT Operations',
+        designation: 'System Administrator'
+      });
+    }
+
+    return sendResponse(res, 200, true, 'Client updated successfully.', client);
   } catch (error) {
     next(error);
   }

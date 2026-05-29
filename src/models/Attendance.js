@@ -1,5 +1,14 @@
 const mongoose = require('mongoose');
 
+const formatDateToIST = (val) => {
+  if (!val) return val;
+  const d = new Date(val);
+  const offset = 5.5 * 60 * 60 * 1000; // IST is UTC + 5:30
+  const istDate = new Date(d.getTime() + offset);
+  const isoStr = istDate.toISOString();
+  return isoStr.slice(0, -1) + '+05:30';
+};
+
 const attendanceSchema = new mongoose.Schema(
   {
     userId: {
@@ -18,9 +27,11 @@ const attendanceSchema = new mongoose.Schema(
     },
     checkInTime: {
       type: Date,
+      get: formatDateToIST
     },
     checkOutTime: {
       type: Date,
+      get: formatDateToIST
     },
     checkInLat: {
       type: Number,
@@ -33,6 +44,10 @@ const attendanceSchema = new mongoose.Schema(
     },
     checkOutLng: {
       type: Number,
+    },
+    checkInLocationName: {
+      type: String,
+      default: '',
     },
     status: {
       type: String,
@@ -55,6 +70,8 @@ const attendanceSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: { getters: true },
+    toObject: { getters: true }
   }
 );
 

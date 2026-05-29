@@ -37,6 +37,18 @@ const clientSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    officeLat: {
+      type: Number,
+      default: null,
+    },
+    officeLng: {
+      type: Number,
+      default: null,
+    },
+    officeAddress: {
+      type: String,
+      default: '',
+    },
   },
   {
     timestamps: true,

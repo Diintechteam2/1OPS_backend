@@ -3,6 +3,7 @@ const clientController = require('../controllers/clientController');
 const authMiddleware = require('../middleware/auth');
 const adminOnlyMiddleware = require('../middleware/adminOnly');
 const clientSlugVerification = require('../middleware/clientSlugVerification');
+const leavePolicyController = require('../controllers/leavePolicyController');
 const router = express.Router({ mergeParams: true });
 
 router.use(authMiddleware, clientSlugVerification, adminOnlyMiddleware);
@@ -24,6 +25,12 @@ router.put('/attendance/:id', clientController.correctAttendance);
 router.get('/leaves', clientController.getAllLeaves);
 router.put('/leaves/:id/approve', clientController.approveLeave);
 router.put('/leaves/:id/reject', clientController.rejectLeave);
+
+// Leave Policy Management
+router.get('/leaves/policies', leavePolicyController.getLeavePolicies);
+router.post('/leaves/policies', leavePolicyController.createLeavePolicy);
+router.put('/leaves/policies/:id', leavePolicyController.updateLeavePolicy);
+router.delete('/leaves/policies/:id', leavePolicyController.deleteLeavePolicy);
 
 // WFH Management
 router.get('/wfh', clientController.getAllWfh);

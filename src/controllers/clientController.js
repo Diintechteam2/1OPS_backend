@@ -79,6 +79,16 @@ exports.updateEmployee = async (req, res, next) => {
       return sendResponse(res, 404, false, 'Employee not found');
     }
 
+    // Role Hierarchy Validation: HR cannot update an Admin's or another HR's details
+    if (req.user.role === 'hr' && (employee.role === 'admin' || employee.role === 'hr') && req.user._id.toString() !== employee._id.toString()) {
+      return sendResponse(res, 403, false, 'Access denied. HR cannot update Admin or other HR details.');
+    }
+
+    // Role Hierarchy Validation: HR cannot promote users to Admin
+    if (role === 'admin' && req.user.role === 'hr') {
+      return sendResponse(res, 403, false, 'Access denied. HR cannot promote users to Admin.');
+    }
+
     if (name !== undefined) employee.name = name;
     if (role !== undefined) employee.role = role;
     if (department !== undefined) employee.department = department;
@@ -117,6 +127,11 @@ exports.deactivateEmployee = async (req, res, next) => {
       return sendResponse(res, 404, false, 'Employee not found');
     }
 
+    // Role Hierarchy Validation: HR cannot deactivate an Admin or HR
+    if (req.user.role === 'hr' && (employee.role === 'admin' || employee.role === 'hr')) {
+      return sendResponse(res, 403, false, 'Access denied. HR cannot deactivate an Admin or HR.');
+    }
+
     employee.isActive = false;
     await employee.save();
     
@@ -151,6 +166,11 @@ exports.onboardEmployee = async (req, res, next) => {
 
     if (!name || !email || !password) {
       return sendResponse(res, 400, false, 'Name, email and password are required.');
+    }
+
+    // Role Hierarchy Validation: HR cannot onboard an Admin user
+    if (role === 'admin' && req.user.role === 'hr') {
+      return sendResponse(res, 403, false, 'Access denied. HR cannot onboard an Admin user.');
     }
 
     const normalizedEmail = email.toLowerCase().trim();

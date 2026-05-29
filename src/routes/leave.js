@@ -9,6 +9,7 @@ router.use(authMiddleware, clientSlugVerification);
 router.post('/apply', leaveController.applyLeave);
 router.get('/my-leaves', leaveController.getMyLeaves);
 router.get('/balance', leaveController.getLeaveBalance);
+router.get('/types', leaveController.getLeaveTypes);
 router.delete('/:id', leaveController.cancelLeave);
 
 module.exports = router;

@@ -1,8 +1,54 @@
 const Attendance = require('../models/Attendance');
 const Leave = require('../models/Leave');
 const WFHRequest = require('../models/WFHRequest');
+const Client = require('../models/Client');
 const { getTodayString } = require('../utils/dateHelpers');
 const sendResponse = require('../utils/sendResponse');
+const https = require('https');
+
+// Helper to reverse geocode Lat/Lng to Address Name using OpenStreetMap Nominatim
+const reverseGeocode = (lat, lng) => {
+  return new Promise((resolve) => {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+    const options = {
+      headers: {
+        'User-Agent': '1OPS-Attendance-App/1.0'
+      }
+    };
+    https.get(url, options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed.display_name || `${lat}, ${lng}`);
+        } catch (e) {
+          resolve(`${lat}, ${lng}`);
+        }
+      });
+    }).on('error', (err) => {
+      resolve(`${lat}, ${lng}`);
+    });
+  });
+};
+
+// Helper to calculate Haversine distance in meters
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = lat1 * Math.PI/180;
+  const φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180;
+  const Δλ = (lon2-lon1) * Math.PI/180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
+}
 
 // Check in with GPS
 exports.markIn = async (req, res, next) => {
@@ -53,6 +99,31 @@ exports.markIn = async (req, res, next) => {
       }
     }
 
+    // Geofencing verification (Only if work type is 'office')
+    if (resolvedType === 'office') {
+      const client = await Client.findById(req.clientId);
+      if (client && client.officeLat !== null && client.officeLng !== null) {
+        if (!checkInLat || !checkInLng) {
+          return sendResponse(res, 400, false, 'GPS coordinates (latitude and longitude) are required for office clock-in.');
+        }
+        const dist = calculateDistance(
+          parseFloat(checkInLat),
+          parseFloat(checkInLng),
+          client.officeLat,
+          client.officeLng
+        );
+        if (dist > 100) {
+          return sendResponse(res, 400, false, `Clock-in denied. You are outside the 100-meter office boundary (Current distance: ${Math.round(dist)}m).`);
+        }
+      }
+    }
+
+    // Get location address name via reverse geocoding
+    let locationName = '';
+    if (checkInLat && checkInLng) {
+      locationName = await reverseGeocode(parseFloat(checkInLat), parseFloat(checkInLng));
+    }
+
     attendance = await Attendance.create({
       userId: req.user._id,
       clientId: req.clientId,
@@ -60,6 +131,7 @@ exports.markIn = async (req, res, next) => {
       checkInTime: now,
       checkInLat,
       checkInLng,
+      checkInLocationName: locationName,
       type: resolvedType,
       status: resolvedStatus,
       isMarked: true

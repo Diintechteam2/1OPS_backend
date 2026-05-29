@@ -15,6 +15,7 @@ router.post('/clients', platformAdminController.createClient);
 router.get('/clients', platformAdminController.getMyClients);
 router.get('/clients/:id', platformAdminController.getClientById);
 router.patch('/clients/:id/toggle-status', platformAdminController.toggleClientStatus);
+router.put('/clients/:id', platformAdminController.updateClient);
 router.post('/clients/:id/impersonate', platformAdminController.impersonateClient);
 
 // Stats
