@@ -227,18 +227,87 @@ exports.onboardEmployee = async (req, res, next) => {
 exports.getAllAttendance = async (req, res, next) => {
   try {
     const { date, userId, status } = req.query;
-    // Always scope to current client
-    const filter = { clientId: req.clientId };
 
-    if (date) filter.date = date;
-    if (userId) filter.userId = userId;
-    if (status) filter.status = status;
+    if (date) {
+      // Fetch all active employees for this client
+      const employees = await User.find({ clientId: req.clientId, isActive: true });
 
-    const records = await Attendance.find(filter)
-      .populate('userId', 'name email employeeId department')
-      .sort({ date: -1 });
+      // Fetch all attendance logs for this client and date
+      const attendanceFilter = { clientId: req.clientId, date };
+      if (userId) attendanceFilter.userId = userId;
 
-    return sendResponse(res, 200, true, 'Attendance records fetched', records);
+      const records = await Attendance.find(attendanceFilter)
+        .populate('userId', 'name email employeeId department')
+        .sort({ date: -1 });
+
+      const recordMap = {};
+      records.forEach(rec => {
+        if (rec.userId) {
+          recordMap[rec.userId._id.toString()] = rec;
+        }
+      });
+
+      let mergedLogs = [];
+
+      employees.forEach(emp => {
+        // If filtering by a single user and this is not that user, skip
+        if (userId && emp._id.toString() !== userId) return;
+
+        const record = recordMap[emp._id.toString()];
+        if (record) {
+          mergedLogs.push(record);
+        } else {
+          // Create virtual absent log
+          mergedLogs.push({
+            _id: `temp-${emp._id}`,
+            userId: {
+              _id: emp._id,
+              name: emp.name,
+              email: emp.email,
+              employeeId: emp.employeeId,
+              department: emp.department,
+              id: emp._id.toString()
+            },
+            clientId: req.clientId,
+            date: date,
+            checkInTime: null,
+            checkOutTime: null,
+            status: 'absent',
+            type: 'office',
+            totalHours: 0,
+            isMarked: false
+          });
+        }
+      });
+
+      // Filter by status if provided
+      if (status) {
+        mergedLogs = mergedLogs.filter(log => log.status === status);
+      }
+
+      // Sort: present first, then alphabetically by employee name
+      mergedLogs.sort((a, b) => {
+        if (a.status === 'absent' && b.status !== 'absent') return 1;
+        if (a.status !== 'absent' && b.status === 'absent') return -1;
+        
+        const nameA = a.userId?.name || '';
+        const nameB = b.userId?.name || '';
+        return nameA.localeCompare(nameB);
+      });
+
+      return sendResponse(res, 200, true, 'Attendance records fetched', mergedLogs);
+    } else {
+      // Fallback if no date is provided
+      const filter = { clientId: req.clientId };
+      if (userId) filter.userId = userId;
+      if (status) filter.status = status;
+
+      const records = await Attendance.find(filter)
+        .populate('userId', 'name email employeeId department')
+        .sort({ date: -1 });
+
+      return sendResponse(res, 200, true, 'Attendance records fetched', records);
+    }
   } catch (error) {
     next(error);
   }
@@ -251,27 +320,96 @@ exports.getAttendanceReport = async (req, res, next) => {
       return sendResponse(res, 400, false, 'Month and year parameters are required.');
     }
 
+    // Fetch all active employees for this client
+    const employees = await User.find({ clientId: req.clientId, isActive: true }).sort({ name: 1 });
+
     const prefix = `${year}-${String(month).padStart(2, '0')}-`;
     const records = await Attendance.find({
       clientId: req.clientId,
       date: { $regex: new RegExp(`^${prefix}`) }
-    }).populate('userId', 'name email employeeId department designation');
+    }).populate('userId', 'name email employeeId department designation weekends');
+
+    // Build a map: userId -> date -> record
+    const recordMap = {};
+    records.forEach(r => {
+      if (r.userId) {
+        const uId = r.userId._id.toString();
+        if (!recordMap[uId]) recordMap[uId] = {};
+        recordMap[uId][r.date] = r;
+      }
+    });
+
+    // Compute monthly summaries for all active employees
+    const employeeSummaries = {};
+    const todayStr = getTodayString();
+    const monthNum = parseInt(month, 10);
+    const yearNum = parseInt(year, 10);
+    const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+
+    employees.forEach(emp => {
+      const uId = emp._id.toString();
+      const empRecords = recordMap[uId] || {};
+      const weekends = emp.weekends || [0];
+
+      let presentDays = 0;
+      let absentDays = 0;
+      let leaveDays = 0;
+      let wfhDays = 0;
+      let weekendDays = 0;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const rec = empRecords[dateStr];
+        const dayOfWeek = new Date(yearNum, monthNum - 1, d).getDay();
+
+        if (rec) {
+          if (['present', 'late', 'half-day'].includes(rec.status)) {
+            presentDays++;
+          } else if (rec.status === 'wfh') {
+            wfhDays++;
+          } else if (rec.status === 'leave') {
+            leaveDays++;
+          } else if (rec.status === 'absent') {
+            absentDays++;
+          }
+        } else {
+          if (dateStr <= todayStr) {
+            if (weekends.includes(dayOfWeek)) {
+              weekendDays++;
+            } else {
+              absentDays++;
+            }
+          }
+        }
+      }
+
+      employeeSummaries[uId] = {
+        presentDays,
+        absentDays,
+        leaveDays,
+        wfhDays,
+        weekendDays
+      };
+    });
 
     if (format === 'json') {
       return sendResponse(res, 200, true, 'Monthly attendance report fetched', records);
     }
 
     // Default to CSV
-    let csv = 'Employee Name,Employee ID,Email,Department,Designation,Date,Check-In,Check-Out,Total Hours,Status,Type\n';
-    records.forEach(r => {
-      const name = r.userId ? r.userId.name : 'Unknown';
-      const empId = r.userId ? r.userId.employeeId : '';
-      const email = r.userId ? r.userId.email : '';
-      const dept = r.userId ? r.userId.department : '';
-      const des = r.userId ? r.userId.designation : '';
-      const checkIn = r.checkInTime ? r.checkInTime.toISOString() : '';
-      const checkOut = r.checkOutTime ? r.checkOutTime.toISOString() : '';
-      csv += `"${name}","${empId}","${email}","${dept}","${des}","${r.date}","${checkIn}","${checkOut}",${r.totalHours},"${r.status}","${r.type}"\n`;
+    let csv = 'Employee Name,Employee ID,Email,Department,Designation,Total Present Days,Total Absent Days,Total Leave Days,Total WFH Days,Total Weekend Days\n';
+
+    employees.forEach(emp => {
+      const uId = emp._id.toString();
+      const summary = employeeSummaries[uId] || { presentDays: 0, absentDays: 0, leaveDays: 0, wfhDays: 0, weekendDays: 0 };
+
+      const name = emp.name;
+      const empId = emp.employeeId || '';
+      const email = emp.email;
+      const dept = emp.department || '';
+      const des = emp.designation || '';
+
+      csv += `"${name}","${empId}","${email}","${dept}","${des}",${summary.presentDays},${summary.absentDays},${summary.leaveDays},${summary.wfhDays},${summary.weekendDays}\n`;
     });
 
     res.setHeader('Content-Type', 'text/csv');
@@ -291,14 +429,32 @@ exports.correctAttendance = async (req, res, next) => {
       return sendResponse(res, 404, false, 'Attendance record not found');
     }
 
-    if (checkInTime) attendance.checkInTime = new Date(checkInTime);
-    if (checkOutTime) attendance.checkOutTime = new Date(checkOutTime);
     if (status) attendance.status = status;
     if (type) attendance.type = type;
 
-    if (attendance.checkInTime && attendance.checkOutTime) {
-      const hours = (attendance.checkOutTime - attendance.checkInTime) / (1000 * 60 * 60);
-      attendance.totalHours = parseFloat(hours.toFixed(2));
+    if (attendance.status === 'leave' || attendance.status === 'absent') {
+      attendance.checkInTime = null;
+      attendance.checkOutTime = null;
+      attendance.totalHours = 0;
+      if (attendance.status === 'leave') {
+        attendance.type = 'leave';
+      }
+    } else {
+      if (checkInTime) attendance.checkInTime = new Date(checkInTime);
+      if (checkOutTime) attendance.checkOutTime = new Date(checkOutTime);
+
+      const rawCheckIn = attendance.get('checkInTime', null, { getters: false });
+      const rawCheckOut = attendance.get('checkOutTime', null, { getters: false });
+
+      const checkInDate = rawCheckIn ? new Date(rawCheckIn) : null;
+      const checkOutDate = rawCheckOut ? new Date(rawCheckOut) : null;
+
+      if (checkInDate && checkOutDate && !isNaN(checkInDate.getTime()) && !isNaN(checkOutDate.getTime())) {
+        const hours = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
+        attendance.totalHours = parseFloat(hours.toFixed(2));
+      } else {
+        attendance.totalHours = 0;
+      }
     }
     attendance.isMarked = true;
 
@@ -463,7 +619,9 @@ exports.approveLeave = async (req, res, next) => {
           status: 'leave',
           type: 'leave',
           isMarked: true,
-          totalHours: 0
+          totalHours: 0,
+          checkInTime: null,
+          checkOutTime: null
         },
         { upsert: true, new: true }
       );
@@ -626,12 +784,22 @@ exports.approveCorrection = async (req, res, next) => {
       attendance.checkOutTime = correction.requestedCheckOut;
     }
 
-    // Recompute hours
-    if (attendance.checkInTime && attendance.checkOutTime) {
-      const hours = (attendance.checkOutTime - attendance.checkInTime) / (1000 * 60 * 60);
+    if (attendance.type === 'leave') {
+      attendance.type = 'office';
+    }
+
+    const rawCheckIn = attendance.get('checkInTime', null, { getters: false });
+    const rawCheckOut = attendance.get('checkOutTime', null, { getters: false });
+
+    const checkInDate = rawCheckIn ? new Date(rawCheckIn) : null;
+    const checkOutDate = rawCheckOut ? new Date(rawCheckOut) : null;
+
+    if (checkInDate && checkOutDate && !isNaN(checkInDate.getTime()) && !isNaN(checkOutDate.getTime())) {
+      const hours = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60);
       attendance.totalHours = parseFloat(hours.toFixed(2));
       attendance.status = attendance.totalHours < 4 ? 'half-day' : 'present';
     } else {
+      attendance.totalHours = 0;
       attendance.status = 'present';
     }
     attendance.isMarked = true;
