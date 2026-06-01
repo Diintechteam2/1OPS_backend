@@ -1,5 +1,6 @@
 const CorrectionRequest = require('../models/CorrectionRequest');
 const sendResponse = require('../utils/sendResponse');
+const { sendNotification } = require('../utils/notificationHelper');
 
 // Request attendance correction
 exports.requestCorrection = async (req, res, next) => {
@@ -23,6 +24,16 @@ exports.requestCorrection = async (req, res, next) => {
     if (requestedCheckOut) payload.requestedCheckOut = new Date(requestedCheckOut);
 
     const request = await CorrectionRequest.create(payload);
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipientRoles: ['admin', 'hr'],
+      title: 'New Correction Request',
+      message: `${req.user.name} has submitted an attendance correction request.`,
+      type: 'request',
+      link: '/client/corrections'
+    });
 
     return sendResponse(res, 201, true, 'Attendance correction request submitted successfully', request);
   } catch (error) {

@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const User = require('../models/User');
 const sendResponse = require('../utils/sendResponse');
+const { sendNotification } = require('../utils/notificationHelper');
 
 // === HR / ADMIN CONTROLLERS ===
 
@@ -28,6 +29,16 @@ exports.createTask = async (req, res, next) => {
       status: 'pending',
       progress: 0,
       dueDate: dueDate ? new Date(dueDate) : null,
+    });
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: assignedTo,
+      title: 'New Task Assigned',
+      message: `You have been assigned a new task: ${title}.`,
+      type: 'task',
+      link: '/tasks'
     });
 
     return sendResponse(res, 201, true, 'Task assigned successfully.', task);
@@ -131,6 +142,16 @@ exports.updateTaskStatus = async (req, res, next) => {
     }
 
     await task.save();
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: task.assignedBy,
+      title: 'Task Status Updated',
+      message: `${req.user.name} has updated the task "${task.title}" to ${task.status} (${task.progress}%).`,
+      type: 'task',
+      link: '/client/tasks'
+    });
 
     return sendResponse(res, 200, true, 'Task updated successfully.', task);
   } catch (error) {

@@ -9,6 +9,7 @@ const Policy = require('../models/Policy');
 const { getTodayString } = require('../utils/dateHelpers');
 const sendResponse = require('../utils/sendResponse');
 const bcrypt = require('bcryptjs');
+const { sendNotification } = require('../utils/notificationHelper');
 
 // === EMPLOYEE MANAGEMENT ===
 
@@ -627,6 +628,16 @@ exports.approveLeave = async (req, res, next) => {
       );
     }
 
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: leave.userId,
+      title: 'Leave Approved',
+      message: 'Your Leave request has been approved.',
+      type: 'approval',
+      link: '/leave'
+    });
+
     return sendResponse(res, 200, true, 'Leave approved successfully and attendance updated', leave);
   } catch (error) {
     next(error);
@@ -650,6 +661,16 @@ exports.rejectLeave = async (req, res, next) => {
     leave.approvedBy = req.user._id;
     leave.approvedAt = new Date();
     await leave.save();
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: leave.userId,
+      title: 'Leave Rejected',
+      message: `Your Leave request has been rejected. Reason: ${adminComment}`,
+      type: 'approval',
+      link: '/leave'
+    });
 
     return sendResponse(res, 200, true, 'Leave request rejected', leave);
   } catch (error) {
@@ -715,6 +736,16 @@ exports.approveWfh = async (req, res, next) => {
       );
     }
 
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: request.userId,
+      title: 'WFH Approved',
+      message: 'Your WFH request has been approved.',
+      type: 'approval',
+      link: '/wfh'
+    });
+
     return sendResponse(res, 200, true, 'WFH request approved', request);
   } catch (error) {
     next(error);
@@ -734,6 +765,16 @@ exports.rejectWfh = async (req, res, next) => {
     request.approvedBy = req.user._id;
     request.approvedAt = new Date();
     await request.save();
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: request.userId,
+      title: 'WFH Rejected',
+      message: `Your WFH request has been rejected. Reason: ${adminComment || 'No comment provided.'}`,
+      type: 'approval',
+      link: '/wfh'
+    });
 
     return sendResponse(res, 200, true, 'WFH request rejected', request);
   } catch (error) {
@@ -805,6 +846,17 @@ exports.approveCorrection = async (req, res, next) => {
     attendance.isMarked = true;
 
     await attendance.save();
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: correction.userId,
+      title: 'Correction Approved',
+      message: 'Your attendance correction request has been approved.',
+      type: 'approval',
+      link: '/correction'
+    });
+
     return sendResponse(res, 200, true, 'Correction approved and attendance record updated', correction);
   } catch (error) {
     next(error);
@@ -823,6 +875,16 @@ exports.rejectCorrection = async (req, res, next) => {
     correction.adminComment = adminComment || '';
     correction.approvedBy = req.user._id;
     await correction.save();
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipient: correction.userId,
+      title: 'Correction Rejected',
+      message: `Your attendance correction request has been rejected. Reason: ${adminComment || 'No comment provided.'}`,
+      type: 'approval',
+      link: '/correction'
+    });
 
     return sendResponse(res, 200, true, 'Correction request rejected', correction);
   } catch (error) {

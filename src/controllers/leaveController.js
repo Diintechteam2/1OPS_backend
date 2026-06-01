@@ -1,5 +1,6 @@
 const Leave = require('../models/Leave');
 const sendResponse = require('../utils/sendResponse');
+const { sendNotification } = require('../utils/notificationHelper');
 
 // Apply for leave
 exports.applyLeave = async (req, res, next) => {
@@ -18,6 +19,16 @@ exports.applyLeave = async (req, res, next) => {
       toDate: new Date(toDate),
       reason,
       status: 'pending'
+    });
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipientRoles: ['admin', 'hr'],
+      title: 'New Leave Application',
+      message: `${req.user.name} has applied for ${leaveType}.`,
+      type: 'request',
+      link: '/client/leaves'
     });
 
     return sendResponse(res, 201, true, 'Leave applied successfully', leave);

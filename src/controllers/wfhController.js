@@ -1,5 +1,6 @@
 const WFHRequest = require('../models/WFHRequest');
 const sendResponse = require('../utils/sendResponse');
+const { sendNotification } = require('../utils/notificationHelper');
 
 exports.requestWfh = async (req, res, next) => {
   try {
@@ -26,6 +27,16 @@ exports.requestWfh = async (req, res, next) => {
       toDate: new Date(toDate),
       reason,
       status: 'pending'
+    });
+
+    sendNotification({
+      sender: req.user._id,
+      clientId: req.clientId,
+      recipientRoles: ['admin', 'hr'],
+      title: 'New WFH Request',
+      message: `${req.user.name} has submitted a WFH request.`,
+      type: 'request',
+      link: '/client/wfh'
     });
 
     return sendResponse(res, 201, true, 'WFH request submitted successfully', request);

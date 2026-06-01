@@ -103,7 +103,7 @@ exports.markIn = async (req, res, next) => {
     if (resolvedType === 'office') {
       const client = await Client.findById(req.clientId);
       if (client && client.officeLat !== null && client.officeLng !== null) {
-        if (!checkInLat || !checkInLng) {
+        if (checkInLat === undefined || checkInLng === undefined || checkInLat === null || checkInLng === null) {
           return sendResponse(res, 400, false, 'GPS coordinates (latitude and longitude) are required for office clock-in.');
         }
         const dist = calculateDistance(
@@ -112,8 +112,8 @@ exports.markIn = async (req, res, next) => {
           client.officeLat,
           client.officeLng
         );
-        if (dist > 100) {
-          return sendResponse(res, 400, false, `Clock-in denied. You are outside the 100-meter office boundary (Current distance: ${Math.round(dist)}m).`);
+        if (dist > 300) {
+          return sendResponse(res, 400, false, `Clock-in denied. You are outside the 300-meter office boundary (Current distance: ${Math.round(dist)}m).`);
         }
       }
     }
