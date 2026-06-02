@@ -6,16 +6,17 @@ const { getTodayString } = require('../utils/dateHelpers');
 const sendResponse = require('../utils/sendResponse');
 const https = require('https');
 
-// Helper to reverse geocode Lat/Lng to Address Name using OpenStreetMap Nominatim
+// Helper to reverse geocode Lat/Lng to Address Name using Google Maps Geocoding API
 const reverseGeocode = (lat, lng) => {
   return new Promise((resolve) => {
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
-    const options = {
-      headers: {
-        'User-Agent': '1OPS-Attendance-App/1.0'
-      }
-    };
-    https.get(url, options, (res) => {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      console.warn('Google Maps API key is missing in reverseGeocode helper. Using fallback.');
+      resolve(`${lat}, ${lng}`);
+      return;
+    }
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
+    https.get(url, (res) => {
       let data = '';
       res.on('data', (chunk) => {
         data += chunk;
@@ -23,7 +24,11 @@ const reverseGeocode = (lat, lng) => {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          resolve(parsed.display_name || `${lat}, ${lng}`);
+          if (parsed.status === 'OK' && parsed.results && parsed.results.length > 0) {
+            resolve(parsed.results[0].formatted_address);
+          } else {
+            resolve(`${lat}, ${lng}`);
+          }
         } catch (e) {
           resolve(`${lat}, ${lng}`);
         }

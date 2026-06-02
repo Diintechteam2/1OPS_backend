@@ -11,6 +11,7 @@ const configureGoogleOAuth = require('./src/config/google');
 const authRoutes = require('./src/routes/auth');
 const superAdminRoutes = require('./src/routes/superAdmin');
 const platformAdminRoutes = require('./src/routes/platformAdmin');
+const utilityRoutes = require('./src/routes/utility');
 
 // Client-scoped routes (require :clientSlug in URL)
 const attendanceRoutes = require('./src/routes/attendance');
@@ -44,6 +45,7 @@ app.use(passport.initialize());
 // === Public Auth Routes ===
 app.use('/api/auth', authRoutes.flatRouter);
 app.use('/api/:clientSlug/auth', authRoutes.scopedRouter);
+app.use('/api/utility', utilityRoutes);
 
 // === Super Admin Routes ===
 app.use('/api/superadmin', superAdminRoutes);
