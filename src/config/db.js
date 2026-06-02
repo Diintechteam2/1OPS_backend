@@ -29,11 +29,12 @@ const seed1OpsClient = async (platformAdminId) => {
 
 // === SEED SUPER ADMIN ===
 const seedSuperAdmin = async () => {
-  const email = 'superadmin@1ops.com';
+  const email = process.env.SUPERADMIN_EMAIL || 'superadmin@1ops.com';
+  const password = process.env.SUPERADMIN_PASSWORD || 'superadmin123';
   let existing = await SuperAdmin.findOne({ email });
   if (!existing) {
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash('superadmin123', salt);
+    const hashedPassword = await bcrypt.hash(password, salt);
     await SuperAdmin.create({
       name: 'Platform Super Admin',
       email,
@@ -41,13 +42,23 @@ const seedSuperAdmin = async () => {
       isActive: true,
     });
     console.log(`Seeded SuperAdmin: ${email}`);
+  } else {
+    // If SuperAdmin exists but password in env changed, update it
+    const isMatch = await bcrypt.compare(password, existing.password);
+    if (!isMatch) {
+      const salt = await bcrypt.genSalt(10);
+      existing.password = await bcrypt.hash(password, salt);
+      await existing.save();
+      console.log(`Updated SuperAdmin password in database to match environment configuration.`);
+    }
   }
 };
 
 // === SEED PLATFORM ADMIN ===
 const seedPlatformAdmin = async () => {
   const email = 'platformadmin@1ops.com';
-  let superAdmin = await SuperAdmin.findOne({ email: 'superadmin@1ops.com' });
+  const superAdminEmail = process.env.SUPERADMIN_EMAIL || 'superadmin@1ops.com';
+  let superAdmin = await SuperAdmin.findOne({ email: superAdminEmail });
   let existing = await PlatformAdmin.findOne({ email });
   if (!existing && superAdmin) {
     const salt = await bcrypt.genSalt(10);
