@@ -25,6 +25,7 @@ const dashboardRoutes = require('./src/routes/dashboard');
 const clientRoutes = require('./src/routes/client');
 const taskRoutes = require('./src/routes/task');
 const notificationRoutes = require('./src/routes/notification');
+const projectRoutes = require('./src/routes/project');
 
 const app = express();
 
@@ -65,6 +66,7 @@ app.use('/api/:clientSlug/dashboard', dashboardRoutes);
 app.use('/api/:clientSlug/client', clientRoutes);
 app.use('/api/:clientSlug/tasks', taskRoutes);
 app.use('/api/:clientSlug/notifications', notificationRoutes);
+app.use('/api/:clientSlug/projects', projectRoutes);
 
 // Fallback error routes
 app.use('*', (req, res) => {
