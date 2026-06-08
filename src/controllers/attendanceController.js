@@ -93,13 +93,16 @@ exports.markIn = async (req, res, next) => {
 
     // Resolve attendance type and status
     let resolvedType = type;
+    if (req.user && req.user.workMode === 'remote') {
+      resolvedType = 'remote';
+    }
     let resolvedStatus = 'present';
 
     if (approvedWfh) {
       resolvedType = 'remote';
       resolvedStatus = 'wfh';
     } else {
-      if (type === 'remote') {
+      if (resolvedType === 'remote') {
         resolvedStatus = 'wfh';
       }
     }
