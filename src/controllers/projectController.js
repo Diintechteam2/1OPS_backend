@@ -150,7 +150,7 @@ exports.getProjectDetails = async (req, res, next) => {
     }
 
     // Convert document to JSON object and append decrypted envContent
-    const responseData = project.toObject();
+    const responseData = project.toObject({ flattenMaps: true });
     responseData.envContent = decryptedEnv;
 
     return sendResponse(res, 200, true, 'Project details fetched', responseData);
@@ -208,6 +208,7 @@ exports.updateProject = async (req, res, next) => {
     if (logins !== undefined) {
       const loginsData = typeof logins === 'string' ? JSON.parse(logins) : logins;
       project.logins = loginsData;
+      project.markModified('logins');
       changes.push('Deployment logins');
     }
 
@@ -221,6 +222,7 @@ exports.updateProject = async (req, res, next) => {
     if (marketing !== undefined) {
       const marketingData = typeof marketing === 'string' ? JSON.parse(marketing) : marketing;
       project.marketing = marketingData;
+      project.markModified('marketing');
       changes.push('Marketing accounts');
     }
 
